@@ -1,9 +1,9 @@
 /** @type {import('next').NextConfig} */
-const isProd = process.env.NODE_ENV === 'production';
+const isGithubPages = process.env.GITHUB_ACTIONS === 'true';
 
 const nextConfig = {
   output: 'export',
-  basePath: isProd ? '/Lap10-Project' : '',
+  basePath: isGithubPages ? '/Lap10-Project' : '',
   images: { unoptimized: true },
   trailingSlash: true,
 };
