@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { Expense } from '@/types/expense';
 import { formatCurrency } from '@/lib/formatters';
+import { budgetRepository, DEFAULT_BUDGET } from '@/lib/budget-repository';
 import { Target, AlertTriangle, CheckCircle2, Settings2 } from 'lucide-react';
 
 interface BudgetBarProps {
@@ -10,35 +11,40 @@ interface BudgetBarProps {
   currentMonthFilter?: string; // YYYY-MM or ALL
 }
 
-const BUDGET_STORAGE_KEY = 'personal_expenses_budget_v1';
-const DEFAULT_BUDGET = 1000;
-
 export default function BudgetBar({ expenses, currentMonthFilter }: BudgetBarProps) {
   const now = new Date();
   const defaultYearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   const targetMonth =
     currentMonthFilter && currentMonthFilter !== 'ALL' ? currentMonthFilter : defaultYearMonth;
 
-  const [budget, setBudget] = useState<number>(() => {
-    if (typeof window === 'undefined') return DEFAULT_BUDGET;
-    try {
-      const saved = localStorage.getItem(BUDGET_STORAGE_KEY);
-      return saved ? Number(saved) : DEFAULT_BUDGET;
-    } catch {
-      return DEFAULT_BUDGET;
-    }
-  });
-
+  const [budget, setBudget] = useState<number>(DEFAULT_BUDGET);
   const [isEditing, setIsEditing] = useState<boolean>(false);
-  const [tempBudget, setTempBudget] = useState<string>(budget.toString());
+  const [tempBudget, setTempBudget] = useState<string>(DEFAULT_BUDGET.toString());
+  const [loading, setLoading] = useState<boolean>(true);
+  const [saving, setSaving] = useState<boolean>(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    try {
-      localStorage.setItem(BUDGET_STORAGE_KEY, budget.toString());
-    } catch (e) {
-      console.error(e);
-    }
-  }, [budget]);
+    let active = true;
+    budgetRepository
+      .get()
+      .then((value) => {
+        if (active && value !== null) {
+          setBudget(value);
+          setTempBudget(value.toString());
+        }
+      })
+      .catch((e) => {
+        console.error(e);
+        if (active) setError('No se pudo cargar el presupuesto.');
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const monthExpenses = expenses.filter((exp) => exp.date.startsWith(targetMonth));
   const totalSpent = monthExpenses.reduce((sum, exp) => sum + exp.amount, 0);
@@ -48,17 +54,33 @@ export default function BudgetBar({ expenses, currentMonthFilter }: BudgetBarPro
   const isOver100 = percentage >= 100;
   const isOver80 = percentage >= 80 && percentage < 100;
 
-  const handleSaveBudget = (e: React.FormEvent) => {
+  const handleSaveBudget = async (e: React.FormEvent) => {
     e.preventDefault();
     const val = Number(tempBudget);
-    if (!isNaN(val) && val > 0) {
+    if (isNaN(val) || val <= 0) {
+      setError('Ingresa un presupuesto mayor que 0.');
+      return;
+    }
+    try {
+      setSaving(true);
+      setError(null);
+      await budgetRepository.save(val);
       setBudget(val);
       setIsEditing(false);
+    } catch (err) {
+      console.error(err);
+      setError('No se pudo guardar el presupuesto.');
+    } finally {
+      setSaving(false);
     }
   };
 
   return (
-    <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
+    <div
+      className={`bg-white rounded-2xl shadow-sm border border-slate-100 p-6 ${
+        loading ? 'opacity-60' : ''
+      }`}
+    >
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
           <Target className="w-5 h-5 text-indigo-600" />
@@ -69,9 +91,11 @@ export default function BudgetBar({ expenses, currentMonthFilter }: BudgetBarPro
           <button
             onClick={() => {
               setTempBudget(budget.toString());
+              setError(null);
               setIsEditing(true);
             }}
-            className="text-xs text-indigo-600 hover:text-indigo-700 font-semibold flex items-center gap-1 bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-xl transition"
+            disabled={loading}
+            className="text-xs text-indigo-600 hover:text-indigo-700 font-semibold flex items-center gap-1 bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-xl transition disabled:opacity-50"
           >
             <Settings2 className="w-3.5 h-3.5" /> Configurar Presupuesto
           </button>
@@ -88,9 +112,10 @@ export default function BudgetBar({ expenses, currentMonthFilter }: BudgetBarPro
             />
             <button
               type="submit"
-              className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold px-3 py-1 rounded-lg transition"
+              disabled={saving}
+              className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold px-3 py-1 rounded-lg transition disabled:opacity-50"
             >
-              Guardar
+              {saving ? 'Guardando...' : 'Guardar'}
             </button>
             <button
               type="button"
@@ -102,6 +127,12 @@ export default function BudgetBar({ expenses, currentMonthFilter }: BudgetBarPro
           </form>
         )}
       </div>
+
+      {error && (
+        <div className="mb-4 p-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-xl">
+          {error}
+        </div>
+      )}
 
       <div className="flex justify-between items-baseline mb-2">
         <div>

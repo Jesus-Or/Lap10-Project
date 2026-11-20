@@ -1,98 +1,110 @@
 import { Expense, ExpenseCategory } from '@/types/expense';
-
-const STORAGE_KEY = 'personal_expenses_mvp_v1';
-
-const INITIAL_EXPENSES: Expense[] = [
-  {
-    id: 'exp-1',
-    amount: 45.50,
-    category: 'Alimentación',
-    date: new Date().toISOString().split('T')[0],
-    description: 'Supermercado semanal',
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: 'exp-2',
-    amount: 15.00,
-    category: 'Transporte',
-    date: new Date(Date.now() - 86400000).toISOString().split('T')[0],
-    description: 'Taxi a reunión',
-    createdAt: new Date(Date.now() - 86400000).toISOString(),
-  },
-  {
-    id: 'exp-3',
-    amount: 350.00,
-    category: 'Vivienda',
-    date: new Date(Date.now() - 86400000 * 3).toISOString().split('T')[0],
-    description: 'Servicios de luz y agua',
-    createdAt: new Date(Date.now() - 86400000 * 3).toISOString(),
-  },
-  {
-    id: 'exp-4',
-    amount: 25.00,
-    category: 'Ocio',
-    date: new Date(Date.now() - 86400000 * 4).toISOString().split('T')[0],
-    description: 'Cine con amigos',
-    createdAt: new Date(Date.now() - 86400000 * 4).toISOString(),
-  }
-];
+import { supabase } from '@/lib/supabase';
 
 export const expensesRepository = {
   list: async (): Promise<Expense[]> => {
-    if (typeof window === 'undefined') {
-      return INITIAL_EXPENSES;
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return [];
+
+    const { data, error } = await supabase
+      .from('expenses')
+      .select('id, amount, category, date, description, created_at')
+      .eq('user_id', user.id)
+      .order('date', { ascending: false })
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('Error fetching expenses from Supabase:', error);
+      throw new Error(error.message);
     }
-    try {
-      const data = localStorage.getItem(STORAGE_KEY);
-      if (!data) {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(INITIAL_EXPENSES));
-        return INITIAL_EXPENSES;
-      }
-      return JSON.parse(data);
-    } catch (error) {
-      console.error('Error reading expenses from localStorage', error);
-      return INITIAL_EXPENSES;
-    }
+
+    return (data || []).map((item: any) => ({
+      id: item.id,
+      amount: Number(item.amount),
+      category: item.category as ExpenseCategory,
+      date: item.date,
+      description: item.description || '',
+      createdAt: item.created_at,
+    }));
   },
 
   create: async (expenseData: Omit<Expense, 'id' | 'createdAt'>): Promise<Expense> => {
-    const expenses = await expensesRepository.list();
-    const newExpense: Expense = {
-      ...expenseData,
-      id: 'exp-' + Date.now() + '-' + Math.random().toString(36).substring(2, 9),
-      createdAt: new Date().toISOString(),
-    };
-    const updated = [newExpense, ...expenses];
-    if (typeof window !== 'undefined') {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('Usuario no autenticado');
+
+    const { data, error } = await supabase
+      .from('expenses')
+      .insert({
+        user_id: user.id,
+        amount: expenseData.amount,
+        category: expenseData.category,
+        date: expenseData.date,
+        description: expenseData.description,
+      })
+      .select('id, amount, category, date, description, created_at')
+      .single();
+
+    if (error) {
+      console.error('Error creating expense in Supabase:', error);
+      throw new Error(error.message);
     }
-    return newExpense;
+
+    return {
+      id: data.id,
+      amount: Number(data.amount),
+      category: data.category as ExpenseCategory,
+      date: data.date,
+      description: data.description || '',
+      createdAt: data.created_at,
+    };
   },
 
   update: async (id: string, expenseData: Partial<Omit<Expense, 'id' | 'createdAt'>>): Promise<Expense> => {
-    const expenses = await expensesRepository.list();
-    let updatedExpense: Expense | null = null;
-    const updated = expenses.map((exp) => {
-      if (exp.id === id) {
-        updatedExpense = { ...exp, ...expenseData };
-        return updatedExpense;
-      }
-      return exp;
-    });
-    if (!updatedExpense) {
-      throw new Error(`Expense with id ${id} not found`);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('Usuario no autenticado');
+
+    const updatePayload: any = {};
+    if (expenseData.amount !== undefined) updatePayload.amount = expenseData.amount;
+    if (expenseData.category !== undefined) updatePayload.category = expenseData.category;
+    if (expenseData.date !== undefined) updatePayload.date = expenseData.date;
+    if (expenseData.description !== undefined) updatePayload.description = expenseData.description;
+
+    const { data, error } = await supabase
+      .from('expenses')
+      .update(updatePayload)
+      .eq('id', id)
+      .eq('user_id', user.id)
+      .select('id, amount, category, date, description, created_at')
+      .single();
+
+    if (error) {
+      console.error('Error updating expense in Supabase:', error);
+      throw new Error(error.message);
     }
-    if (typeof window !== 'undefined') {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-    }
-    return updatedExpense;
+
+    return {
+      id: data.id,
+      amount: Number(data.amount),
+      category: data.category as ExpenseCategory,
+      date: data.date,
+      description: data.description || '',
+      createdAt: data.created_at,
+    };
   },
 
   remove: async (id: string): Promise<void> => {
-    const expenses = await expensesRepository.list();
-    const updated = expenses.filter((exp) => exp.id !== id);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('Usuario no autenticado');
+
+    const { error } = await supabase
+      .from('expenses')
+      .delete()
+      .eq('id', id)
+      .eq('user_id', user.id);
+
+    if (error) {
+      console.error('Error removing expense from Supabase:', error);
+      throw new Error(error.message);
     }
   },
 };
