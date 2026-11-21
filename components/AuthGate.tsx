@@ -2,7 +2,7 @@
 
 import { ReactNode } from 'react'
 import { useAuth } from '@/hooks/useAuth'
-import { AuthForm } from './AuthForm'
+import { LandingPage } from './LandingPage'
 
 interface AuthGateProps {
   children: ReactNode
@@ -23,7 +23,7 @@ export function AuthGate({ children }: AuthGateProps) {
   }
 
   if (!user) {
-    return <AuthForm />
+    return <LandingPage />
   }
 
   return (
@@ -52,3 +52,4 @@ export function AuthGate({ children }: AuthGateProps) {
     </div>
   )
 }
+
